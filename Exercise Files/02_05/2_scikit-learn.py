@@ -115,12 +115,14 @@ features
 
 # MAGIC %md ### Hold out a random test set
 # MAGIC
-# MAGIC We hold out a random sample of the data for testing.  Note that this randomness can cause this notebook to produce different results each time it is run.
+# MAGIC We hold out a random sample of the data for testing.  Note that this randomness can cause this notebook to produce different results each time it is run.<br>
+# MAGIC
+# MAGIC **Info**: It must relate to the renaming and deprecation of cross_validation sub-module to model_selection. Try substituting cross_validation to model_selection
 
 # COMMAND ----------
 
 # Hold out 30% of the data for testing.  We will use the rest for training.
-from sklearn.cross_validation import train_test_split
+from sklearn.model_selection import train_test_split
 trainingLabels, testLabels, trainingFeatures, testFeatures = train_test_split(labels, features, test_size=0.3)
 ntrain, ntest = len(trainingLabels), len(testLabels)
 print('Split data randomly into 2 sets: %d training and %d test instances.' % (ntrain, ntest))
@@ -202,9 +204,11 @@ origScore
 # COMMAND ----------
 
 # We use scikit-learn's cross_validation module, which helps split our data randomly into k equal-size parts ("folds").
-from sklearn import cross_validation
+#from sklearn import cross_validation FA: depricated
+from sklearn.model_selection import KFold
+
 numFolds = 3 # You may want to use more (10 or so) in practice
-kf = cross_validation.KFold(ntrain, n_folds=numFolds)
+kf = KFold(n_splits=numFolds)
 
 # COMMAND ----------
 
@@ -263,6 +267,38 @@ def trainOneModel(alpha, fold):
   clf.fit(X_train, Y_train)
   score = clf.score(X_val, Y_val)
   return clf, score, alpha, fold
+
+# COMMAND ----------
+
+# LEARN!  We now map our tasks RDD and apply the training function to each task.
+# After we call an action ("count") on the results, the actual training is executed.
+trainedModelAndScores = tasksRDD.map(lambda alpha_fold: trainOneModel(alpha_fold[0], alpha_fold[1]))
+trainedModelAndScores.cache()
+trainedModelAndScores.count()
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC I used Diagnose error and the assistant produced the below
+
+# COMMAND ----------
+
+from sklearn.model_selection import KFold
+
+def trainOneModel(alpha, fold):
+    kf = KFold(n_splits=5)
+    for train_index, test_index in kf.split(alpha):
+        # Your training logic here
+        # Get training data from the broadcast variables
+        localTrainingFeatures = trainingFeaturesBroadcast.value
+        localTrainingLabels = trainingLabelsBroadcast.value
+        X_train, X_val = localTrainingFeatures[train_index], localTrainingFeatures[test_index]
+        Y_train, Y_val = localTrainingLabels[train_index], localTrainingLabels[test_index]
+        # Train the model, and score it
+        model = linear_model.Ridge(alpha=alpha)
+        model.fit(X_train, Y_train)
+        score = model.score(X_val, Y_val)
+    return model, score
 
 # COMMAND ----------
 
